@@ -1924,19 +1924,27 @@ home();
 #vb .vbw{max-width:640px;margin:0 auto;padding:16px 16px 40px;display:flex;flex-direction:column;gap:14px}
 #vb .vbtop{display:flex;align-items:center;gap:10px}
 #vb .vbtop h2{flex:1}
-.vbmic{width:120px;height:120px;border-radius:50%;margin:6px auto;display:grid;place-items:center;border:0;background:var(--surface-2);color:var(--ink-2);box-shadow:inset 0 0 0 2px var(--line);cursor:pointer}
-.vbmic svg{width:46px;height:46px}
+.vbmic{width:112px;height:112px;border-radius:50%;margin:4px auto;display:grid;place-items:center;border:0;background:var(--surface-2);color:var(--ink-2);box-shadow:inset 0 0 0 2px var(--line);cursor:pointer}
+.vbmic svg{width:44px;height:44px}
 .vbmic.speak{background:var(--sel);color:var(--brand);box-shadow:inset 0 0 0 3px var(--brand)}
-.vbmic.listen{background:var(--accent);color:#fff;box-shadow:0 0 0 0 var(--accent);animation:vbp 1.2s infinite}
+.vbmic.think{background:var(--warn-soft);color:var(--warn);box-shadow:inset 0 0 0 3px var(--warn)}
+.vbmic.listen{background:var(--accent);color:#fff;animation:vbp 1.2s infinite}
 @keyframes vbp{0%{box-shadow:0 0 0 0 rgba(138,43,53,.5)}100%{box-shadow:0 0 0 22px rgba(138,43,53,0)}}
 @media (prefers-reduced-motion:reduce){.vbmic.listen{animation:none}}
 .vbstat{text-align:center;font-weight:600;color:var(--ink-2);min-height:24px}
-.vbheard{text-align:center;font-size:13px;color:var(--ink-3);min-height:20px}
+.vbheard{text-align:center;font-size:13px;color:var(--ink-3);min-height:20px;overflow-wrap:anywhere}
 .vbtaps{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .vbtaps button{font:600 18px var(--f-mono);min-height:52px}
 .vbmsg{border-radius:8px;padding:10px 12px;font-size:14px}
-.vbmsg.g{background:var(--good-soft);color:var(--good)} .vbmsg.r{background:var(--bad-soft);color:var(--bad)}
-.vbhelp{font-size:13px;color:var(--ink-2);margin:0;padding-left:18px}
+.vbmsg.g{background:var(--good-soft);color:var(--good)} .vbmsg.r{background:var(--bad-soft);color:var(--bad)} .vbmsg.s{background:var(--surface-2);color:var(--ink-2);border:1px solid var(--line)}
+.vbai{display:flex;flex-direction:column;gap:6px;background:var(--sel);border:1px solid var(--brand);border-radius:8px;padding:10px 12px;font-size:14px}
+.vbai b{color:var(--brand);font-size:13px}
+.vbhelp{font-size:13px;color:var(--ink-2);margin:0;padding-left:18px;display:flex;flex-direction:column;gap:3px}
+.vbkey{display:flex;gap:8px;flex-wrap:wrap}
+.vbkey input{flex:1 1 220px;font:15px var(--f-mono);padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);min-height:44px}
+.vbok{color:var(--good);font-weight:600}
+.vbchk{display:flex;gap:8px;align-items:flex-start;font-size:14px}
+.vbchk input{margin-top:4px;width:18px;height:18px}
 </style>
 <button id="vbFab" type="button" aria-label="Voice Bot kholein"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5"/></svg>Voice Bot</button>
 <div id="vb" hidden></div>
@@ -1947,174 +1955,344 @@ const Q=RAW.q, CH=RAW.chapters, PARTS=RAW.parts, L='ABCDE', NEG=0.25;
 const box=document.getElementById('vb'), fab=document.getElementById('vbFab');
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 const synth=window.speechSynthesis;
-let S=null, rec=null, alive=false, voice=null, runId=0;
+let S=null, alive=false, voices=[], micBad=false;
 const MIC='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5"/></svg>';
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function plain(s){return String(s||'').replace(/<[^>]*>/g,' ').replace(/&nbsp;/g,' ').replace(/\s+/g,' ').trim()}
-function st(k,v){try{if(v===undefined)return JSON.parse(localStorage.getItem(k)||'null');localStorage.setItem(k,JSON.stringify(v))}catch(e){return null}}
+function st(k,v){try{if(v===undefined)return JSON.parse(localStorage.getItem(k)||'null');if(v===null){localStorage.removeItem(k);return;}localStorage.setItem(k,JSON.stringify(v))}catch(e){return null}}
 function partOf(ci){return CH[ci].split('|')[0]}
-function pickVoice(){const vs=synth?synth.getVoices():[];voice=vs.find(v=>/en[-_]IN/i.test(v.lang))||vs.find(v=>/hi[-_]IN/i.test(v.lang))||vs.find(v=>/^en/i.test(v.lang))||null;}
-if(synth){pickVoice();synth.onvoiceschanged=pickVoice;}
+function loadVoices(){voices=synth?synth.getVoices():[];}
+if(synth){loadVoices();synth.onvoiceschanged=loadVoices;}
+function voiceFor(hi){return hi?(voices.find(v=>/hi[-_]IN/i.test(v.lang))||voices.find(v=>/en[-_]IN/i.test(v.lang))):(voices.find(v=>/en[-_]IN/i.test(v.lang))||voices.find(v=>/^en/i.test(v.lang)));}
 
-/* ---- bolna (TTS), chhote tukdon me taaki Chrome beech me na ruke ---- */
+/* ================= BOLNA ================= */
+let sayId=0, speakingText='';
 function say(text){
   return new Promise(res=>{
-    if(!synth){res();return;}
-    const my=runId;
-    const parts=plain(text).replace(/([.?!;:])\s+/g,'$1|').split('|').flatMap(p=>p.length>180?p.match(/.{1,180}(\s|$)/g):[p]).filter(x=>x&&x.trim());
-    let i=0;
+    const my=++sayId;
+    if(!synth||!alive){res(false);return;}
+    const txt=plain(text);
+    const parts=txt.replace(/([.?!;:।])\s+/g,'$1|').split('|').flatMap(p=>p.length>180?p.match(/.{1,180}(\s|$)/g):[p]).filter(x=>x&&x.trim());
+    let i=0; speakingText=txt.toLowerCase(); paint();
     const next=()=>{
-      if(my!==runId||!alive){res();return;}
-      if(i>=parts.length){res();return;}
-      const u=new SpeechSynthesisUtterance(parts[i++]);
-      if(voice)u.voice=voice; u.lang=voice?voice.lang:'en-IN'; u.rate=S&&S.rate||1;
+      if(my!==sayId||!alive){res(false);return;}
+      if(i>=parts.length){speakingText='';paint();res(true);return;}
+      const t=parts[i++], hi=/[ऀ-ॿ]/.test(t);
+      const u=new SpeechSynthesisUtterance(t); const v=voiceFor(hi);
+      if(v)u.voice=v; u.lang=v?v.lang:(hi?'hi-IN':'en-IN'); u.rate=S&&S.rate||1;
       u.onend=next; u.onerror=next; synth.speak(u);
     };
     synth.cancel(); next();
   });
 }
-function stopAll(){runId++;try{synth&&synth.cancel()}catch(e){} try{rec&&rec.abort()}catch(e){} rec=null;}
+function hush(){sayId++;speakingText='';try{synth&&synth.cancel()}catch(e){} paint();}
 
-/* ---- sunna (Speech Recognition) ---- */
-function listen(){
-  return new Promise(res=>{
-    if(!SR){res({err:'nosr'});return;}
-    const my=runId;
-    const r=new SR(); rec=r; r.lang='en-IN'; r.interimResults=true; r.maxAlternatives=5; r.continuous=false;
-    let got=null, done=false;
-    r.onresult=e=>{
-      const last=e.results[e.results.length-1];
-      const alts=[...last].map(a=>a.transcript);
-      setHeard(alts[0]);
-      if(last.isFinal){got=alts;}
-    };
-    r.onerror=e=>{if(!done){done=true;res({err:e.error});}};
-    r.onend=()=>{if(!done){done=true;res(my!==runId?{err:'aborted'}:got?{alts:got}:{err:'no-speech'});}};
-    try{r.start()}catch(e){done=true;res({err:'start'});}
-  });
-}
-const W={A:['a','ay','ae','ek','one','1','first','pehla','option a','a option','hey','eh'],B:['b','bee','be','bi','do','two','2','second','dusra','doosra','option b','v','we'],C:['c','see','sea','si','she','teen','three','3','third','teesra','tisra','option c'],D:['d','dee','di','the','char','chaar','four','4','for','fourth','chautha','option d'],E:['e','ee','paanch','panch','five','5','fifth','option e']};
-function parse(alts){
-  for(const raw of alts){
-    const t=' '+raw.toLowerCase().replace(/[^a-z0-9ऀ-ॿ ]/g,' ').replace(/\s+/g,' ').trim()+' ';
-    if(/ (repeat|dobara|phir se|fir se|again|wapas) /.test(t))return 'repeat';
-    if(/ (skip|chhodo|chodo|chhod|next|aage|pass) /.test(t))return 'skip';
-    if(/ (stop|band|ruko|exit|khatam) /.test(t))return 'stop';
-    if(/ (dheere|slow|slowly) /.test(t))return 'slow';
-    if(/ (tez|fast|jaldi) /.test(t))return 'fast';
-    const m=t.match(/ (?:option|opshan|answer|uttar|jawab)? ?([a-e]) /);
-    if(m)return m[1].toUpperCase();
-    for(const k of 'ABCDE'){for(const w of W[k]){if(t.trim()===w||t.includes(' option '+k.toLowerCase()+' ')||(w.length>1&&t===' '+w+' '))return k;}}
-    const hi={'ए':'A','बी':'B','सी':'C','डी':'D','एक':'A','दो':'B','तीन':'C','चार':'D'};
-    for(const h in hi){if(t.includes(' '+h+' '))return hi[h];}
-  }
+/* ================= JAWAB PEHCHANNA ================= */
+const MAP={
+ A:'a ay aye ae eh ei ey hey hay aa ah aaa yay 8 eight ek one 1 first pehla pahla pehle apple alpha amar ए एक पहला ऐ ये एय',
+ B:'b be bee bi bhi by bye buy pee pe p v vee vi we wee bea bb bebe bhee do doh two 2 too to second dusra doosra dusre bravo ball boy bombay bihar bharat बी दो दूसरा भी वी बि पी',
+ C:'c see sea si she cee ce shi sie seen scene cc teen tin three 3 third teesra tisra tree charlie cat calcutta chennai सी तीन तीसरा शी सि',
+ D:'d dee di de the thee dh dhee dhi thi dii dy die day deep dd char chaar car chai chart four 4 for fourth chautha delta dog delhi dilli डी चार चौथा दी दि ढी',
+ E:'e ee ie paanch panch five 5 fifth echo पांच'
+};
+const TOK={};for(const k in MAP)MAP[k].split(' ').forEach(w=>{if(w&&!(w in TOK))TOK[w]=k;});
+const FILL=new Set('ऑप्शन आप्शन ओप्शन ऑपशन उत्तर जवाब है मेरा सही option options auction opshan opsion apshan optional opinion operation answer ans uttar jawab javab sahi correct right mera mere my is hai the a an ka ki ke wala wali vala number no letter i think hmm um uh ok okay please bhai ji its it say'.split(' '));
+const SP=s=>new RegExp('(^| )('+s+')( |$)');
+const CMDS=[
+ ['stop',SP('stop|band karo|exit|khatam|test khatam|बंद करो|खत्म|ख़त्म')],
+ ['reveal',SP('answer batao|answer bata do|answer bataiye|jawab batao|jawab bata do|uttar batao|sahi answer batao|जवाब बताओ|उत्तर बताओ|आंसर बताओ')],
+ ['prev',SP('pichla|pichhla|pichhle|pichle|previous|peeche|piche|back|पिछला|पिछले|पीछे')],
+ ['next',SP('agla|agle|next|aage|age chalo|आगे|अगला|अगले')],
+ ['skip',SP('skip|chhodo|chodo|chhod do|chod do|pass|nahi pata|pata nahi|नहीं पता|पता नहीं|छोड़ो|छोड़ दो|स्किप')],
+ ['repeat',SP('repeat|dobara|dubara|phir se|fir se|again|ek baar aur|phir padho|फिर से|दोबारा|दुबारा')],
+ ['pause',SP('ruko|ruk jao|wait|ek minute|रुको|रुक जाओ')],
+ ['slow',SP('dheere|dhire|slow|slowly|धीरे')],
+ ['fast',SP('tez|fast|jaldi bolo|तेज़|तेज')]
+];
+const ASK=SP('kyu|kyun|kyon|kyo|kya|kaise|kaisa|kaun|kitna|kitne|kab|matlab|samjha|samjhao|samjhaiye|samjhayein|explain|why|what|how|meaning|doubt|detail|batao|bataiye|क्यों|क्यूं|क्या|कैसे|कौन|कितना|मतलब|समझा|समझाओ|समझाइए|बताओ|बताइए');
+function norm(t){return String(t||'').toLowerCase().replace(/[.,!?;:'"()\-।]/g,' ').replace(/\s+/g,' ').trim();}
+function letterOf(t){
+  const toks=norm(t).split(' ').filter(Boolean);
+  if(!toks.length)return null;
+  for(let i=0;i<toks.length;i++){if(/^(option|options|auction|opshan|opsion|apshan|optional|ऑप्शन|आप्शन|ओप्शन)$/.test(toks[i])){const n=toks[i+1],p=toks[i-1];if(n&&TOK[n])return TOK[n];if(p&&TOK[p]&&p!=='the'&&p!=='a')return TOK[p];}}
+  const core=toks.filter(w=>!FILL.has(w));
+  const use=core.length?core:toks;
+  const cnt={};let lastK=null;use.forEach(w=>{let k=TOK[w];if(!k){const m=w.match(/^([a-e])\1+$/);if(m)k=m[1].toUpperCase();}if(k){cnt[k]=(cnt[k]||0)+1;lastK=k;}});
+  if(lastK){const top=Object.keys(cnt).sort((x,y)=>cnt[y]-cnt[x]);return cnt[top[0]]>cnt[lastK]?top[0]:lastK;}
+  if(use.length===1&&use[0].length<=3){const c=use[0][0];if('bpv'.includes(c))return 'B';if('dt'.includes(c))return 'D';if('cs'.includes(c))return 'C';if('aeh'.includes(c))return 'A';}
   return null;
 }
-
-/* ---- UI ---- */
-function setStat(mode,txt){const m=box.querySelector('.vbmic');if(m){m.className='vbmic'+(mode?' '+mode:'');}const s=box.querySelector('.vbstat');if(s)s.textContent=txt;}
-function setHeard(t){const h=box.querySelector('.vbheard');if(h)h.textContent=t?'Suna: "'+t+'"':'';}
-function open(){box.hidden=false;fab.hidden=true;document.body.style.overflow='hidden';home();}
-function close(){alive=false;stopAll();box.hidden=true;fab.hidden=false;document.body.style.overflow='';}
-fab.onclick=open;
-function top(t){return `<div class="vbtop"><h2>${t}</h2><button class="btn ghost" id="vbX">Band karein</button></div>`;}
-
-function home(){
-  alive=false;stopAll();
-  const last=st('vbpref')||{part:'all',n:10};
-  box.innerHTML=`<div class="vbw">${top('Voice Bot')}
-  <div class="panel" style="display:flex;flex-direction:column;gap:12px">
-    <p class="muted" style="margin:0">Bot sawal aur options bol kar sunayega. Aap jawab bolein, jaise <b>"B"</b> ya <b>"option C"</b>. Bot turant batayega sahi hai ya galat.</p>
-    <div class="fields">
-      <label class="fld">Kis hisse se<select id="vbP"><option value="all">Sab hisse</option>${Object.keys(PARTS).map(k=>`<option value="${k}" ${last.part===k?'selected':''}>${esc(PARTS[k])}</option>`).join('')}<option value="wrong" ${last.part==='wrong'?'selected':''}>Meri galtiyan (galat hue sawal)</option></select></label>
-      <label class="fld">Kitne sawal<select id="vbN">${[5,10,20,30].map(n=>`<option ${last.n==n?'selected':''}>${n}</option>`).join('')}</select></label>
-    </div>
-    <button class="btn primary" id="vbGo">Shuru karein</button>
-    ${SR?'':'<div class="vbmsg r">Is browser me aawaz sunne ki suvidha nahi hai. Bot bolega, par jawab aapko A/B/C/D button dabakar dena hoga. Aawaz se jawab dene ke liye Google Chrome me kholein.</div>'}
-  </div>
-  <div class="panel"><h3 style="margin-bottom:6px">Bolne wale shabd</h3>
-  <ul class="vbhelp"><li><b>A / B / C / D</b>, ya "ek, do, teen, char": jawab</li><li><b>"Dobara"</b> ya "repeat": sawal phir se sunein</li><li><b>"Skip"</b> ya "aage": sawal chhod dein</li><li><b>"Dheere"</b> / <b>"Tez"</b>: bolne ki raftaar</li><li><b>"Stop"</b>: test khatam</li></ul>
-  <p class="note" style="margin:8px 0 0">Pehli baar microphone ki permission maangi jayegi, "Allow" dabayein. Marking: sahi +1, galat −${NEG}, skip 0.</p></div></div>`;
-  box.querySelector('#vbX').onclick=close;
-  box.querySelector('#vbGo').onclick=()=>{
-    const part=box.querySelector('#vbP').value,n=+box.querySelector('#vbN').value;st('vbpref',{part,n});
-    let ids;
-    if(part==='wrong'){const w=st('wrong');ids=Object.keys(Array.isArray(w)?Object.fromEntries(w.map(i=>[i,0])):(w||{})).map(Number).filter(i=>i>=0&&i<Q.length);}
-    else ids=Q.map((q,i)=>i).filter(i=>part==='all'||partOf(Q[i][0])===part);
-    ids=ids.filter(i=>Array.isArray(Q[i][3])&&Q[i][3].length>=2&&Q[i][4]>=0);
-    if(!ids.length){alert('Is hisse me koi sawal nahi mila.');return;}
-    for(let i=ids.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[ids[i],ids[j]]=[ids[j],ids[i]];}
-    S={ids:ids.slice(0,n),k:0,ok:0,bad:0,skip:0,rate:(st('vbpref')||{}).rate||1};
-    alive=true; if(synth){synth.cancel();} run();
-  };
+const NUMW={one:'1',two:'2',three:'3',four:'4',five:'5',six:'6',seven:'7',eight:'8',nine:'9',ten:'10',twelve:'12',fifteen:'15',twenty:'20',thirty:'30',fifty:'50',hundred:'100'};
+function words(t){return norm(t).split(' ').map(w=>NUMW[w]||w).filter(w=>(w.length>1||/\d/.test(w))&&!FILL.has(w));}
+function lev(a,b){const m=a.length,n=b.length;if(!m||!n)return Math.max(m,n);let p=[...Array(n+1).keys()];for(let i=1;i<=m;i++){const c=[i];for(let j=1;j<=n;j++)c[j]=Math.min(p[j]+1,c[j-1]+1,p[j-1]+(a[i-1]===b[j-1]?0:1));p=c;}return p[n];}
+function near(a,b){if(a===b)return true;if(a.length<4||b.length<4)return false;return 1-lev(a,b)/Math.max(a.length,b.length)>=0.7;}
+function textMatch(t,opts){
+  const said=new Set(words(t));
+  if(said.size===1){const w=[...said][0];if(w.length>=4){const hits=opts.map((o,i)=>words(plain(o)).some(x=>near(w,x))?i:-1).filter(i=>i>=0);if(hits.length===1)return L[hits[0]];}if(!/\d/.test(w))return null;}
+  if(!said.size)return null;
+  let best=-1,bs=0,second=0;
+  opts.forEach((o,i)=>{const ow=words(plain(o));if(!ow.length)return;let hit=0;ow.forEach(w=>{if([...said].some(s=>near(s,w)))hit++;});
+    const sc=hit/ow.length;if(sc>bs){second=bs;bs=sc;best=i;}else if(sc>second)second=sc;});
+  return (best>=0&&bs>=0.4&&bs-second>=0.15)?L[best]:null;
 }
+function cmdOf(t){const x=' '+norm(t)+' ';for(const [c,re] of CMDS)if(re.test(x.trim()))return c;return null;}
+function isAsk(t){return ASK.test(norm(t))&&norm(t).split(' ').length>=2;}
+function pickLetter(alts,opts){
+  const vote={};
+  alts.forEach((raw,i)=>{const w=1/(i+1),n=words(raw).length;
+    const ok=x=>x&&L.indexOf(x)<opts.length?x:null;
+    const tm=ok(textMatch(raw,opts)),lm=ok(letterOf(raw));
+    const k=n>=2?(tm||lm):(lm||tm);
+    if(k)vote[k]=(vote[k]||0)+w;});
+  const ks=Object.keys(vote).sort((a,b)=>vote[b]-vote[a]);
+  return ks[0]||null;
+}
+/* bot ki apni aawaz mic me aa jaye to use na maano */
+function isEcho(t){
+  if(!speakingText)return false;
+  const tk=norm(t).split(' ').filter(Boolean);if(tk.length<2)return false;
+  const sp=new Set(speakingText.replace(/[.,!?;:'"()\-।]/g,' ').split(/\s+/));
+  const inn=tk.filter(w=>sp.has(w)).length;return inn/tk.length>=0.7;
+}
+
+/* ================= AI (Gemini) ================= */
+const GEM='https://generativelanguage.googleapis.com/v1beta/';
+function gkey(){return st('vbGemKey')||'';}
+async function gmodel(){
+  let m=st('vbGemModel'); if(m)return m;
+  const r=await fetch(GEM+'models?pageSize=200',{headers:{'x-goog-api-key':gkey()}});
+  if(!r.ok)throw {status:r.status,body:await r.text().catch(()=>'')};
+  const j=await r.json();
+  const ok=(j.models||[]).filter(x=>(x.supportedGenerationMethods||[]).includes('generateContent')).map(x=>x.name);
+  const bad=/lite|image|tts|audio|live|embed|vision|exp|preview|thinking|robotics|nano|computer/;
+  m=ok.find(n=>n==='models/gemini-flash-latest')
+   ||ok.filter(n=>/gemini-[\d.]+-flash$/.test(n)).sort().reverse()[0]
+   ||ok.find(n=>/flash/.test(n)&&!bad.test(n))
+   ||ok.find(n=>/flash/.test(n))||ok[0];
+  if(!m)throw {status:404,body:'no model'};
+  st('vbGemModel',m);return m;
+}
+async function gask(prompt,retry){
+  const m=await gmodel();
+  const r=await fetch(GEM+m+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':gkey()},
+    body:JSON.stringify({contents:[{role:'user',parts:[{text:prompt}]}],generationConfig:{temperature:0.4,responseMimeType:'application/json'}})});
+  if(!r.ok){const body=await r.text().catch(()=>'');if(r.status===404&&!retry){st('vbGemModel',null);return gask(prompt,true);}throw {status:r.status,body};}
+  const j=await r.json();
+  const txt=((j.candidates||[])[0]||{}).content?.parts?.map(p=>p.text||'').join('')||'';
+  const clean=txt.replace(/^```(json)?/,'').replace(/```$/,'').trim();
+  try{return JSON.parse(clean);}catch(e){return {intent:'chat',reply:clean};}
+}
+async function testKey(k){
+  const r=await fetch(GEM+'models?pageSize=5',{headers:{'x-goog-api-key':k}});
+  return r.ok;
+}
+function aiErr(e){
+  const s=e&&e.status;
+  if(s===400||s===401||s===403)return 'AI key sahi nahi lag rahi. Settings me key dobara daalein.';
+  if(s===429)return 'AI ki aaj ki free limit poori ho gayi ya bahut jaldi-jaldi sawal gaye. Thodi der baad poochiye.';
+  if(!s)return 'AI tak nahi pahunch paye. Internet check karein.';
+  return 'AI se jawab nahi mila. Thodi der baad poochiye.';
+}
+
+/* ================= SUNNA (hamesha chalu kaan) ================= */
+let ear=null, earOn=false, earLang='en-IN', fails=0;
+function startEar(){
+  if(!SR||!alive||micBad||ear)return;
+  earOn=true;
+  const r=new SR(); ear=r; r.lang=earLang; r.continuous=true; r.interimResults=true; r.maxAlternatives=5;
+  let deb=null, done=-1, gotAny=false;
+  r.onresult=e=>{
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      if(i<=done)continue;
+      const res=e.results[i];
+      const alts=[...res].map(x=>x.transcript).filter(x=>x&&x.trim());
+      if(!alts.length)continue;
+      gotAny=true;
+      if(isEcho(alts[0]))continue;
+      setHeard('Suna: "'+alts[0].trim()+'"');
+      clearTimeout(deb);
+      if(res.isFinal){done=i;onUtter(alts,true);}
+      else{
+        const quick=quickOf(alts);
+        if(quick&&norm(alts[0]).split(' ').length<=3){const idx=i;deb=setTimeout(()=>{if(idx>done){done=idx;onUtter(alts,false);}},650);}
+      }
+    }
+  };
+  r.onerror=e=>{
+    if(e.error==='not-allowed'||e.error==='service-not-allowed'||e.error==='audio-capture'){micBad=true;earOn=false;setStat('','Microphone nahi mila. Neeche button dabakar jawab dein.');}
+    else if(e.error==='network'){setStat('','Internet nahi mila. Button dabakar jawab dein.');}
+  };
+  r.onend=()=>{
+    ear=null;
+    if(!gotAny){fails++; if(fails%3===0)earLang=earLang==='en-IN'?'hi-IN':'en-IN';} else fails=0;
+    if(earOn&&alive&&!micBad)setTimeout(startEar,120);
+  };
+  try{r.start()}catch(e){ear=null;}
+}
+function stopEar(){earOn=false;try{ear&&ear.abort()}catch(e){} ear=null;}
+
+/* ================= SAMAJHNA: kya bola gaya ================= */
+function cur(){return Q[S.ids[S.k]];}
+function quickOf(alts){
+  const t=alts[0];
+  const c=cmdOf(t); if(c&&!(isAsk(t)&&!['stop','next','prev','reveal'].includes(c)))return c;
+  if(isAsk(t))return null;
+  return pickLetter(alts,cur()[3]);
+}
+function onUtter(alts,final){
+  if(!S||!alive)return;
+  const t=alts[0].trim();
+  if(S.phase==='think'){const c=cmdOf(t);if(c==='stop'||c==='next'||c==='prev'){S.flow++;act(c);}return;}
+  const q=quickOf(alts);
+  if(q){act(q,t);return;}
+  if(!final)return;
+  if(gkey()&&(isAsk(t)||words(t).length>=2)){askAI(t);return;}
+  if(isAsk(t)){explainLocal();return;}
+  S.miss=(S.miss||0)+1;
+  setHeard('Suna: "'+t+'". Samajh nahi aaya: ek, do, teen ya char boliye');
+  if(S.miss===2&&S.phase==='wait')say('Ek, do, teen ya char boliye.');
+}
+
+function act(c,said){
+  if(!S||S.phase==='done')return;
+  S.miss=0;
+  const answered=S.ans[S.k]!=null;
+  if(L.includes(c)){
+    if(answered){if(S.phase==='feedback'){/* jawab ho chuka: ignore */}return;}
+    answer(c,said);return;
+  }
+  switch(c){
+    case 'stop':finish();return;
+    case 'next':if(!answered){skipQ(true);}else{S.flow++;goNext();}return;
+    case 'skip':if(!answered)skipQ(false);else{S.flow++;goNext();}return;
+    case 'reveal':if(!answered)skipQ(false);return;
+    case 'prev':S.flow++;goPrev();return;
+    case 'repeat':S.flow++;showQ(true);return;
+    case 'pause':S.flow++;hush();S.phase=answered?'feedback':'wait';setStat('listen','Ruk gaya. Jab chahein "aage" ya jawab boliye.');return;
+    case 'slow':case 'fast':S.rate=c==='slow'?Math.max(.6,S.rate-.15):Math.min(1.6,S.rate+.15);{const p=st('vbpref')||{};p.rate=S.rate;st('vbpref',p);}say(c==='slow'?'Theek hai, dheere bolunga.':'Theek hai, tez bolunga.');return;
+  }
+}
+
+/* ================= QUIZ FLOW ================= */
+function setStat(mode,txt){const m=box.querySelector('.vbmic');if(m)m.dataset.mode=mode||'';const s=box.querySelector('.vbstat');if(s)s.textContent=txt;paint();}
+function paint(){const m=box.querySelector('.vbmic');if(!m)return;const mode=m.dataset.mode;m.className='vbmic'+(S&&S.phase==='think'?' think':speakingText?' speak':(mode==='listen'||(earOn&&!micBad))?' listen':'');}
+function setHeard(t){const h=box.querySelector('.vbheard');if(h)h.textContent=t||'';}
+function readQ(q,n){let t='Question '+n+'. '+plain(q[2])+'. ';q[3].forEach((o,i)=>t+='Option '+L[i]+'. '+plain(o)+'. ');return t+'Jawab boliye.';}
 
 function qView(){
-  const id=S.ids[S.k],q=Q[id];
+  const q=cur();
   box.innerHTML=`<div class="vbw">${top('Sawal '+(S.k+1)+' / '+S.ids.length)}
-  <div class="row small muted"><span class="num">Sahi ${S.ok}</span><span class="num">Galat ${S.bad}</span><span class="num">Skip ${S.skip}</span><span class="grow"></span><span class="num">Score ${(S.ok-S.bad*NEG).toFixed(2)}</span></div>
+  <div class="row small muted"><span class="num">Sahi ${S.ok}</span><span class="num">Galat ${S.bad}</span><span class="num">Skip ${S.skip}</span><span class="grow"></span><span class="num">Score ${(S.ok-S.bad*NEG).toFixed(2)}</span>${gkey()?'<span class="tag g">AI chalu</span>':''}</div>
   <div class="panel"><div class="qtext">${esc(plain(q[2]))}</div>
   <div class="opts">${q[3].map((o,i)=>`<div class="opt" data-o="${i}"><span class="k">${L[i]}</span><span class="v">${esc(plain(o))}</span></div>`).join('')}</div>
-  <div id="vbRes" style="margin-top:12px"></div></div>
-  <button class="vbmic" id="vbMic" aria-label="Ab bolein">${MIC}</button>
+  <div id="vbRes" style="margin-top:12px;display:flex;flex-direction:column;gap:8px"></div></div>
+  <button class="vbmic" id="vbMic" aria-label="Bot ko rokein">${MIC}</button>
   <div class="vbstat"></div><div class="vbheard"></div>
   <div class="vbtaps" style="grid-template-columns:repeat(${q[3].length},1fr)">${q[3].map((o,i)=>`<button class="btn" data-tap="${L[i]}">${L[i]}</button>`).join('')}</div>
-  <div class="nav"><button class="btn" id="vbRep">Dobara sunein</button><button class="btn" id="vbSk">Skip</button><span class="sp"></span><button class="btn danger" id="vbEnd">Test khatam</button></div></div>`;
+  <div class="nav"><button class="btn" id="vbPrev">← Pichla</button><button class="btn" id="vbRep">Dobara</button><button class="btn" id="vbNext">Agla →</button><span class="sp"></span><button class="btn danger" id="vbEnd">Test khatam</button></div></div>`;
   box.querySelector('#vbX').onclick=close;
-  box.querySelector('#vbEnd').onclick=()=>{stopAll();result();};
-  box.querySelector('#vbRep').onclick=()=>{S.cmd='repeat';stopAll();run();};
-  box.querySelector('#vbSk').onclick=()=>{S.cmd='skip';stopAll();run();};
-  box.querySelector('#vbMic').onclick=()=>{S.cmd='listen';stopAll();run();};
-  box.querySelectorAll('[data-tap]').forEach(b=>b.onclick=()=>{S.cmd=b.dataset.tap;stopAll();run();});
+  box.querySelector('#vbEnd').onclick=finish;
+  box.querySelector('#vbRep').onclick=()=>act('repeat');
+  box.querySelector('#vbNext').onclick=()=>act('next');
+  box.querySelector('#vbPrev').onclick=()=>act('prev');
+  box.querySelector('#vbMic').onclick=()=>{if(speakingText){S.flow++;hush();S.phase=S.ans[S.k]!=null?'feedback':'wait';setStat('listen','Boliye…');}else{startEar();setStat('listen','Boliye…');}};
+  box.querySelectorAll('[data-tap]').forEach(b=>b.onclick=()=>act(b.dataset.tap));
 }
-
-function readQ(q,n){let t='Question '+n+'. '+plain(q[2])+'. ';q[3].forEach((o,i)=>t+='Option '+L[i]+'. '+plain(o)+'. ');return t;}
-
-async function run(){
-  if(!alive)return;
-  const my=++runId;
-  if(S.k>=S.ids.length){result();return;}
-  let cmd=S.cmd;S.cmd=null;
-  if(S.answered===S.k){S.k++;S.drawn=-1;cmd=null;if(S.k>=S.ids.length){result();return;}}
-  const id=S.ids[S.k],q=Q[id];
-  if(!box.querySelector('#vbMic')||S.drawn!==S.k){qView();S.drawn=S.k;}
-  if(cmd==null||cmd==='repeat'){setStat('speak','Bot bol raha hai…');await say(readQ(q,S.k+1));if(my!==runId)return;cmd=null;}
-  let tries=0;
-  while(cmd==null||cmd==='listen'||cmd==='slow'||cmd==='fast'){
-    if(cmd==='slow'||cmd==='fast'){S.rate=cmd==='slow'?Math.max(.6,S.rate-.15):Math.min(1.5,S.rate+.15);const p=st('vbpref')||{};p.rate=S.rate;st('vbpref',p);setStat('speak','Bot bol raha hai…');await say(cmd==='slow'?'Theek hai, dheere bolunga.':'Theek hai, tez bolunga.');if(my!==runId)return;}
-    if(!SR){setStat('','Jawab ka button dabayein');return;}
-    setStat('listen','Bolein… (A, B, C ya D)');setHeard('');
-    const r=await listen(); if(my!==runId)return;
-    if(r.err){
-      if(r.err==='not-allowed'||r.err==='service-not-allowed'||r.err==='audio-capture'){setStat('','Microphone nahi mila. Neeche button dabakar jawab dein.');return;}
-      if(++tries>=3){setStat('','Kuch sunai nahi diya. Mic dabakar phir bolein, ya button dabayein.');return;}
-      cmd=null;continue;
-    }
-    cmd=parse(r.alts);
-    if(!cmd){setStat('speak','Samajh nahi aaya');await say('Samajh nahi aaya. A, B, C ya D boliye.');if(my!==runId)return;if(++tries>=3){setStat('','Mic dabakar phir bolein, ya button dabayein.');return;}cmd=null;}
-  }
-  if(cmd==='stop'){stopAll();result();return;}
-  if(cmd==='repeat'){S.cmd='repeat';run();return;}
-  const ans=q[4],opts=box.querySelectorAll('.opt'),res=box.querySelector('#vbRes');
-  let speech;
-  if(cmd==='skip'){S.skip++;speech='Skip kiya. Sahi jawab tha option '+L[ans]+', '+plain(q[3][ans])+'.';opts[ans]&&opts[ans].classList.add('right');res.innerHTML=`<div class="vbmsg r" style="background:var(--surface-2);color:var(--ink-2)">Skip. Sahi jawab: <b>${L[ans]}</b></div>`;}
-  else{
-    const i=L.indexOf(cmd);
-    if(i<0||i>=q[3].length){setStat('speak','');await say('Is sawal me option '+cmd+' nahi hai.');if(my!==runId)return;S.cmd='listen';run();return;}
-    const ok=i===ans;
-    opts[ans]&&opts[ans].classList.add('right');if(!ok&&opts[i])opts[i].classList.add('wrong');
-    record(id,ok);
-    if(ok){S.ok++;speech='Sahi jawab! Option '+L[ans]+'.';res.innerHTML=`<div class="vbmsg g"><b>Sahi!</b> +1</div>`;}
-    else{S.bad++;speech='Galat. Aapne '+L[i]+' bola. Sahi jawab hai option '+L[ans]+', '+plain(q[3][ans])+'.';res.innerHTML=`<div class="vbmsg r"><b>Galat.</b> Sahi jawab: <b>${L[ans]}</b> (−${NEG})</div>`;}
-  }
-  const ex=plain(q[8]);
-  if(ex)res.insertAdjacentHTML('beforeend',`<div class="exp" style="margin-top:8px"><b>Samjhein</b><span>${esc(ex)}</span></div>`);
-  S.answered=S.k;
+function markAnswered(){
+  const q=cur(),a=S.ans[S.k],opts=box.querySelectorAll('.opt'),res=box.querySelector('#vbRes'),ans=q[4];
+  opts[ans]&&opts[ans].classList.add('right');
+  if(a&&a!=='skip'&&L.indexOf(a)!==ans&&opts[L.indexOf(a)])opts[L.indexOf(a)].classList.add('wrong');
+  res.innerHTML=a==='skip'?`<div class="vbmsg s">Skip. Sahi jawab: <b>${L[ans]}</b></div>`:L.indexOf(a)===ans?`<div class="vbmsg g"><b>Sahi!</b> +1</div>`:`<div class="vbmsg r"><b>Galat.</b> Aapne ${a} chuna. Sahi jawab: <b>${L[ans]}</b> (−${NEG})</div>`;
+  const ex=plain(q[8]); if(ex)res.insertAdjacentHTML('beforeend',`<div class="exp"><b>Samjhein</b><span>${esc(ex)}</span></div>`);
   box.querySelectorAll('[data-tap]').forEach(b=>b.disabled=true);
-  setStat('speak','Bot bol raha hai…');
-  await say(speech+(ex?' '+ex:''));
-  if(my!==runId)return;
-  run();
+}
+async function showQ(read){
+  const f=++S.flow; hush(); qView(); S.hist=S.histK===S.k?S.hist:[]; S.histK=S.k;
+  if(S.ans[S.k]!=null){markAnswered();S.phase='feedback';setStat('','Is sawal ka jawab ho chuka. "Aage" boliye.');
+    const q=cur();await say('Question '+(S.k+1)+'. '+plain(q[2])+'. Iska jawab ho chuka hai. Sahi jawab option '+L[q[4]]+', '+plain(q[3][q[4]])+'. Aage jaane ke liye aage boliye.');return;}
+  S.phase='read'; setStat('','Bot padh raha hai… beech me bhi jawab bol sakte hain');
+  startEar();
+  await say(readQ(cur(),S.k+1));
+  if(f!==S.flow)return;
+  S.phase='wait'; setStat('listen','Boliye… ek, do, teen, char (ya A, B, C, D)');
+}
+async function answer(letter,said){
+  const q=cur(),i=L.indexOf(letter);
+  if(i<0||i>=q[3].length)return;
+  const f=++S.flow; hush();
+  const ok=i===q[4]; S.ans[S.k]=letter; record(S.ids[S.k],ok); ok?S.ok++:S.bad++;
+  qView(); markAnswered(); S.phase='feedback';
+  if(said)setHeard('"'+said+'" → '+letter);
+  setStat('','Bot jawab bata raha hai…');
+  const ex=plain(q[8]);
+  const sp=ok?'Sahi jawab! Option '+letter+'.':'Galat. Aapne '+letter+' bola. Sahi jawab hai option '+L[q[4]]+', '+plain(q[3][q[4]])+'.';
+  const done=await say(sp+(ex?' '+ex:''));
+  if(f!==S.flow||!done)return;
+  setStat('listen','Agla sawal aa raha hai… kuch poochna ho to abhi boliye');
+  await new Promise(r=>setTimeout(r,1500));
+  if(f!==S.flow)return;
+  goNext();
+}
+async function skipQ(isNext){
+  const q=cur(),f=++S.flow; hush();
+  S.ans[S.k]='skip'; S.skip++;
+  qView(); markAnswered(); S.phase='feedback';
+  const ex=plain(q[8]);
+  const done=await say((isNext?'Aage chalte hain. ':'Skip kiya. ')+'Sahi jawab tha option '+L[q[4]]+', '+plain(q[3][q[4]])+'.'+(ex?' '+ex:''));
+  if(f!==S.flow||!done)return;
+  await new Promise(r=>setTimeout(r,1200));
+  if(f!==S.flow)return;
+  goNext();
+}
+function goNext(){if(S.k+1>=S.ids.length){finish();return;}S.k++;showQ(true);}
+function goPrev(){if(S.k<=0){say('Yeh pehla sawal hai.');return;}S.k--;showQ(true);}
+async function explainLocal(){
+  const q=cur(),f=++S.flow;hush();
+  const answered=S.ans[S.k]!=null;
+  if(!answered){await say('Pehle jawab dijiye, phir main samjhaunga. Ya answer batao boliye.');if(f===S.flow)S.phase='wait';return;}
+  const ex=plain(q[8])||'Is sawal ki explanation nahi hai.';
+  await say(ex);
+}
+async function askAI(t){
+  const q=cur(),f=++S.flow; hush();
+  const prevPhase=S.ans[S.k]!=null?'feedback':'wait';
+  S.phase='think'; setStat('think','AI soch raha hai…'); paint();
+  const answered=S.ans[S.k]!=null;
+  const hist=(S.hist||[]).slice(-4).map(h=>'Student: '+h.u+'\nTutor: '+h.a).join('\n');
+  const prompt=`You are a friendly voice tutor inside a quiz app for the Indian Railways Appendix-III A (IREM) departmental exam. The student is speaking to you by voice (speech-to-text, so words may be misheard; guess generously).
+
+Current question (${S.k+1} of ${S.ids.length}):
+${plain(q[2])}
+${q[3].map((o,i)=>L[i]+') '+plain(o)).join('\n')}
+Correct answer: ${L[q[4]]}
+Book explanation (Hinglish): ${plain(q[8])||'none'}
+Student has ${answered?('already answered: '+S.ans[S.k]):'NOT answered yet'}.
+${hist?'Recent conversation:\n'+hist+'\n':''}
+The student just said: "${t}"
+
+Decide what the student wants and reply ONLY with JSON: {"intent":"answer|next|prev|repeat|skip|reveal|stop|explain|chat|unclear","option":"A|B|C|D|E or empty","reply":"..."}
+Rules:
+- "answer": the student is choosing an option (letter in any language/accent, Hindi number words like ek/do/teen/char, or words resembling an option's text). Put the letter in "option"; reply "".
+- next/prev/repeat/skip/reveal/stop: navigation (agla=next, pichla=prev, dobara=repeat, answer batao=reveal). reply "".
+- "explain": a doubt or question about this question, a term, a rule, or why an answer is right/wrong. If the student has NOT answered yet, do NOT reveal or hint which option is correct; explain the concept so they can decide. If answered, explain fully why the correct answer is right.
+- "chat": anything else related to the exam or railways accounts; answer helpfully.
+- "unclear": you cannot tell; reply asks them politely to repeat.
+- "reply" is spoken aloud by a Hindi voice: write in simple Hindi in Devanagari script, keep technical terms (like Demurrage, PF, Stores) in English letters, 2-4 short sentences, no markdown, no lists. If the student clearly spoke in English, reply in simple English instead.`;
+  let out;
+  try{out=await gask(prompt);}catch(e){if(f!==S.flow)return;S.phase=prevPhase;setStat('','AI se jawab nahi mila');await say(aiErr(e));if(f===S.flow)setStat('listen','Boliye…');return;}
+  if(f!==S.flow)return;
+  S.phase=prevPhase;
+  const it=String(out.intent||'').toLowerCase(), op=String(out.option||'').toUpperCase().trim();
+  if(it==='answer'&&L.includes(op)&&L.indexOf(op)<q[3].length){act(op,t);return;}
+  if(['next','prev','repeat','skip','reveal','stop'].includes(it)){act(it);return;}
+  const rep=String(out.reply||'').trim()||'Maaf kijiye, phir se boliye.';
+  (S.hist=S.hist||[]).push({u:t,a:rep});
+  const res=box.querySelector('#vbRes');
+  if(res)res.insertAdjacentHTML('beforeend',`<div class="vbai"><b>Aapne poocha: ${esc(t)}</b><span>${esc(rep)}</span></div>`);
+  setStat('','AI samjha raha hai…');
+  await say(rep);
+  if(f!==S.flow)return;
+  setStat('listen',S.ans[S.k]!=null?'Aur kuch poochna hai? Ya "aage" boliye.':'Ab jawab boliye… ya aur poochiye');
 }
 
 function record(id,ok){
@@ -2127,8 +2305,73 @@ function record(id,ok){
   }catch(e){}
 }
 
-async function result(){
-  const my=++runId;
+/* ================= SCREENS ================= */
+function open(){box.hidden=false;fab.hidden=true;document.body.style.overflow='hidden';home();}
+function close(){alive=false;stopEar();hush();box.hidden=true;fab.hidden=false;document.body.style.overflow='';}
+fab.onclick=open;
+function top(t){return `<div class="vbtop"><h2>${t}</h2><button class="btn ghost" id="vbX">Band karein</button></div>`;}
+
+function keyPanel(){
+  const k=gkey();
+  return `<div class="panel" style="display:flex;flex-direction:column;gap:10px"><h3>AI (Gemini) – doubt poochne ke liye</h3>
+  ${k?`<div class="row"><span class="vbok">✓ AI chalu hai</span><span class="muted small num">${esc(k.slice(0,6))}…${esc(k.slice(-4))}</span><span class="grow"></span><button class="btn" id="vbKeyDel">Key hatao</button></div>
+  <p class="note" style="margin:0">Ab aap koi bhi sawal pooch sakte hain, jaise "ye demurrage kya hota hai?" ya "B galat kyun hai?". AI Hindi me bolkar samjhayega.</p>`
+  :`<p class="muted small" style="margin:0">aistudio.google.com se apni Gemini API key copy karke yahan paste karein. Key sirf isi browser me save rahegi, kisi aur ko nahi dikhegi.</p>
+  <div class="vbkey"><input id="vbKey" type="password" autocomplete="off" placeholder="AIza..." aria-label="Gemini API key"><button class="btn primary" id="vbKeySave">Save karein</button></div><div id="vbKeyMsg" class="small"></div>
+  <p class="note" style="margin:0">Bina key ke bhi Voice Bot chalega, bas doubt wale sawal ka jawab nahi dega.</p>`}</div>`;
+}
+function home(){
+  alive=false;stopEar();hush();
+  const last=st('vbpref')||{part:'all',n:10};
+  box.innerHTML=`<div class="vbw">${top('Voice Bot')}
+  <div class="panel" style="display:flex;flex-direction:column;gap:12px">
+    <p class="muted" style="margin:0">Bot sawal bolega. Aap kabhi bhi jawab bol dein, bot ke bolte-bolte bhi. Jaise <b>"do"</b>, <b>"B"</b>, <b>"option C"</b>, ya option ka text.</p>
+    <div class="fields">
+      <label class="fld">Kis hisse se<select id="vbP"><option value="all">Sab hisse</option>${Object.keys(PARTS).map(k=>`<option value="${k}" ${last.part===k?'selected':''}>${esc(PARTS[k])}</option>`).join('')}<option value="wrong" ${last.part==='wrong'?'selected':''}>Meri galtiyan (galat hue sawal)</option></select></label>
+      <label class="fld">Kitne sawal<select id="vbN">${[5,10,20,30,50].map(n=>`<option ${last.n==n?'selected':''}>${n}</option>`).join('')}</select></label>
+    </div>
+    <button class="btn primary" id="vbGo">Shuru karein</button>
+    ${SR?'':'<div class="vbmsg r">Is browser me aawaz sunne ki suvidha nahi hai. Google Chrome me kholein. Tab tak button dabakar jawab de sakte hain.</div>'}
+  </div>
+  ${keyPanel()}
+  <div class="panel"><h3 style="margin-bottom:6px">Kya bol sakte hain</h3>
+  <ul class="vbhelp">
+   <li>Jawab: <b>"ek, do, teen, char"</b> sabse saaf. A, B, C, D ya option ka text bhi chalega.</li>
+   <li>B aur D me confusion na ho: B = <b>"do"</b>, D = <b>"char"</b>.</li>
+   <li><b>"Agla"</b> / <b>"Pichla"</b>: sawal badlein. <b>"Dobara"</b>: phir se sunein.</li>
+   <li><b>"Ruko"</b>: bot chup. <b>"Answer batao"</b>: sahi jawab sunein. <b>"Stop"</b>: test khatam.</li>
+   <li><b>"Dheere"</b> / <b>"Tez"</b>: bolne ki raftaar.</li>
+   <li>AI chalu ho to: <b>"ye kya hota hai?"</b>, <b>"samjhao"</b>, <b>"C kyun sahi hai?"</b></li>
+  </ul>
+  <p class="note" style="margin:8px 0 0">Earphone lagakar chalayein to bot apni aawaz nahi sunega aur aap beech me aaraam se bol payenge. Marking: sahi +1, galat −${NEG}, skip 0.</p></div></div>`;
+  box.querySelector('#vbX').onclick=close;
+  const kd=box.querySelector('#vbKeyDel'); if(kd)kd.onclick=()=>{st('vbGemKey',null);st('vbGemModel',null);home();};
+  const ks=box.querySelector('#vbKeySave');
+  if(ks)ks.onclick=async()=>{
+    const v=box.querySelector('#vbKey').value.trim(),msg=box.querySelector('#vbKeyMsg');
+    if(!v){msg.textContent='Pehle key paste karein.';return;}
+    msg.textContent='Key check ho rahi hai…';ks.disabled=true;
+    let ok=false;try{ok=await testKey(v);}catch(e){}
+    ks.disabled=false;
+    if(!ok){msg.innerHTML='<span style="color:var(--bad)">Yeh key kaam nahi kar rahi. aistudio.google.com se sahi key copy karein, ya nayi banayein.</span>';return;}
+    st('vbGemKey',v);st('vbGemModel',null);home();
+  };
+  box.querySelector('#vbGo').onclick=()=>{
+    const part=box.querySelector('#vbP').value,n=+box.querySelector('#vbN').value;const p=st('vbpref')||{};p.part=part;p.n=n;st('vbpref',p);
+    let ids;
+    if(part==='wrong'){const w=st('wrong');ids=Object.keys(Array.isArray(w)?Object.fromEntries(w.map(i=>[i,0])):(w||{})).map(Number).filter(i=>i>=0&&i<Q.length);}
+    else ids=Q.map((q,i)=>i).filter(i=>part==='all'||partOf(Q[i][0])===part);
+    ids=ids.filter(i=>Array.isArray(Q[i][3])&&Q[i][3].length>=2&&Q[i][4]>=0);
+    if(!ids.length){alert('Is hisse me koi sawal nahi mila.');return;}
+    for(let i=ids.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[ids[i],ids[j]]=[ids[j],ids[i]];}
+    S={ids:ids.slice(0,n),k:0,ok:0,bad:0,skip:0,rate:p.rate||1,ans:{},flow:0,phase:'read',hist:[]};
+    alive=true; micBad=false; fails=0; earLang='en-IN';
+    showQ(true);
+  };
+}
+async function finish(){
+  if(!S)return;
+  S.flow++; S.phase='done'; stopEar(); hush();
   const sc=(S.ok-S.bad*NEG),tot=S.ok+S.bad+S.skip;
   box.innerHTML=`<div class="vbw">${top('Voice test ka result')}
   <div class="panel" style="display:flex;flex-direction:column;gap:12px;align-items:center;text-align:center">
@@ -2141,11 +2384,11 @@ async function result(){
   box.querySelector('#vbH').onclick=home;
   box.querySelector('#vbAg').onclick=()=>{home();box.querySelector('#vbGo').click();};
   await say('Test khatam. Aapke '+S.ok+' sahi, '+S.bad+' galat, aur '+S.skip+' skip hue. Score '+sc.toFixed(2)+'.');
-  if(my===runId)alive=false;
 }
-document.addEventListener('keydown',e=>{if(box.hidden||!S||!alive)return;const k=e.key.toUpperCase();if('ABCDE'.includes(k)&&k.length===1&&!e.target.closest('select')){S.cmd=k;stopAll();run();}});
+document.addEventListener('keydown',e=>{if(box.hidden||!S||!alive||e.target.closest('input,select'))return;const k=e.key.toUpperCase();if(k.length===1&&'ABCDE'.includes(k)){act(k);}else if(e.key==='ArrowRight')act('next');else if(e.key==='ArrowLeft')act('prev');});
 })();
 </script>
 <!-- VOICE BOT END -->
+
 
 </body></html>
