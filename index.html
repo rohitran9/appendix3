@@ -1966,14 +1966,14 @@ if(synth){loadVoices();synth.onvoiceschanged=loadVoices;}
 function voiceFor(hi){return hi?(voices.find(v=>/hi[-_]IN/i.test(v.lang))||voices.find(v=>/en[-_]IN/i.test(v.lang))):(voices.find(v=>/en[-_]IN/i.test(v.lang))||voices.find(v=>/^en/i.test(v.lang)));}
 
 /* ================= BOLNA ================= */
-let sayId=0, speakingText='';
+let sayId=0, speakingText='', spokenSet=new Set();
 function say(text){
   return new Promise(res=>{
     const my=++sayId;
     if(!synth||!alive){res(false);return;}
     const txt=plain(text);
     const parts=txt.replace(/([.?!;:।])\s+/g,'$1|').split('|').flatMap(p=>p.length>180?p.match(/.{1,180}(\s|$)/g):[p]).filter(x=>x&&x.trim());
-    let i=0; speakingText=txt.toLowerCase(); paint();
+    let i=0; speakingText=txt.toLowerCase(); spokenSet=new Set(norm(txt).split(' ')); paint();
     const next=()=>{
       if(my!==sayId||!alive){res(false);return;}
       if(i>=parts.length){speakingText='';paint();res(true);return;}
@@ -2048,50 +2048,85 @@ function pickLetter(alts,opts){
   return ks[0]||null;
 }
 /* bot ki apni aawaz mic me aa jaye to use na maano */
-function isEcho(t){
-  if(!speakingText)return false;
-  const tk=norm(t).split(' ').filter(Boolean);if(tk.length<2)return false;
-  const sp=new Set(speakingText.replace(/[.,!?;:'"()\-।]/g,' ').split(/\s+/));
-  const inn=tk.filter(w=>sp.has(w)).length;return inn/tk.length>=0.7;
+/* bot ke bolte samay: mic me bot ke shabd bhi aate hain, unhe hata kar sirf aapke shabd rakho */
+function residue(t){
+  if(!speakingText)return t;
+  return norm(t).split(' ').filter(w=>w&&!spokenSet.has(w)).join(' ');
 }
 
 /* ================= AI (Gemini) ================= */
 const GEM='https://generativelanguage.googleapis.com/v1beta/';
 function gkey(){return st('vbGemKey')||'';}
-async function gmodel(){
-  let m=st('vbGemModel'); if(m)return m;
+async function gmodels(){
+  let c=st('vbGemCands'); if(Array.isArray(c)&&c.length)return c;
   const r=await fetch(GEM+'models?pageSize=200',{headers:{'x-goog-api-key':gkey()}});
   if(!r.ok)throw {status:r.status,body:await r.text().catch(()=>'')};
   const j=await r.json();
   const ok=(j.models||[]).filter(x=>(x.supportedGenerationMethods||[]).includes('generateContent')).map(x=>x.name);
-  const bad=/lite|image|tts|audio|live|embed|vision|exp|preview|thinking|robotics|nano|computer/;
-  m=ok.find(n=>n==='models/gemini-flash-latest')
-   ||ok.filter(n=>/gemini-[\d.]+-flash$/.test(n)).sort().reverse()[0]
-   ||ok.find(n=>/flash/.test(n)&&!bad.test(n))
-   ||ok.find(n=>/flash/.test(n))||ok[0];
-  if(!m)throw {status:404,body:'no model'};
-  st('vbGemModel',m);return m;
+  const bad=/image|tts|audio|live|embed|vision|robotics|nano|computer|gemma|learnlm|aqa/;
+  const ver=n=>parseFloat((n.match(/gemini-(\d+(\.\d+)?)/)||[0,0])[1]);
+  const fl=ok.filter(n=>/flash/.test(n)&&!bad.test(n));
+  c=[...new Set([
+    ...ok.filter(n=>n==='models/gemini-flash-latest'),
+    ...fl.filter(n=>/gemini-[\d.]+-flash$/.test(n)).sort((a,b)=>ver(b)-ver(a)),
+    ...ok.filter(n=>n==='models/gemini-flash-lite-latest'),
+    ...fl.filter(n=>/lite/.test(n)).sort((a,b)=>ver(b)-ver(a)),
+    ...fl.sort((a,b)=>ver(b)-ver(a)),
+    ...ok.filter(n=>/gemini/.test(n)&&!bad.test(n))
+  ])].slice(0,8);
+  if(!c.length)throw {status:404,body:'Is key par koi Gemini model nahi mila'};
+  st('vbGemCands',c);return c;
 }
-async function gask(prompt,retry){
-  const m=await gmodel();
+async function gcall(m,prompt,json){
+  const gc={temperature:0.4};if(json)gc.responseMimeType='application/json';
   const r=await fetch(GEM+m+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':gkey()},
-    body:JSON.stringify({contents:[{role:'user',parts:[{text:prompt}]}],generationConfig:{temperature:0.4,responseMimeType:'application/json'}})});
-  if(!r.ok){const body=await r.text().catch(()=>'');if(r.status===404&&!retry){st('vbGemModel',null);return gask(prompt,true);}throw {status:r.status,body};}
-  const j=await r.json();
-  const txt=((j.candidates||[])[0]||{}).content?.parts?.map(p=>p.text||'').join('')||'';
-  const clean=txt.replace(/^```(json)?/,'').replace(/```$/,'').trim();
-  try{return JSON.parse(clean);}catch(e){return {intent:'chat',reply:clean};}
+    body:JSON.stringify({contents:[{role:'user',parts:[{text:prompt}]}],generationConfig:gc})});
+  const body=await r.text().catch(()=>'');
+  if(!r.ok)throw {status:r.status,body,model:m};
+  let j;try{j=JSON.parse(body);}catch(e){throw {status:'bad-json',body:body.slice(0,200),model:m};}
+  const cand=(j.candidates||[])[0];
+  const txt=cand&&cand.content&&cand.content.parts?cand.content.parts.map(p=>p.text||'').join(''):'';
+  if(!txt)throw {status:'empty',body:JSON.stringify(j.promptFeedback||cand||{}).slice(0,200),model:m};
+  return txt;
+}
+async function gask(prompt){
+  const cands=await gmodels();
+  const pref=st('vbGemModel'); const order=pref&&cands.includes(pref)?[pref,...cands.filter(x=>x!==pref)]:cands;
+  let lastErr=null;
+  for(const m of order.slice(0,5)){
+    for(const json of [true,false]){
+      try{
+        const txt=await gcall(m,prompt,json);
+        st('vbGemModel',m);
+        const clean=txt.replace(/^\s*```(json)?/,'').replace(/```\s*$/,'').trim();
+        try{return JSON.parse(clean);}catch(e){const mm=clean.match(/\{[\s\S]*\}/);if(mm){try{return JSON.parse(mm[0]);}catch(e2){}}return {intent:'chat',reply:clean};}
+      }catch(e){
+        lastErr=e;
+        if(e.status===401||e.status===403)throw e;           // key ki dikkat: aur koshish bekaar
+        if(e.status===400&&json&&/mime|json|response/i.test(e.body||''))continue; // bina JSON mode ke try karo
+        break; // agla model
+      }
+    }
+  }
+  throw lastErr||{status:'unknown'};
 }
 async function testKey(k){
   const r=await fetch(GEM+'models?pageSize=5',{headers:{'x-goog-api-key':k}});
   return r.ok;
 }
+function aiDetail(e){
+  if(!e)return '';
+  let msg='';try{const j=JSON.parse(e.body||'');msg=(j.error&&j.error.message)||'';}catch(x){msg=e.body||'';}
+  return 'Error '+(e.status||'?')+(e.model?' ('+String(e.model).replace('models/','')+')':'')+(msg?': '+String(msg).slice(0,160):'');
+}
 function aiErr(e){
   const s=e&&e.status;
-  if(s===400||s===401||s===403)return 'AI key sahi nahi lag rahi. Settings me key dobara daalein.';
-  if(s===429)return 'AI ki aaj ki free limit poori ho gayi ya bahut jaldi-jaldi sawal gaye. Thodi der baad poochiye.';
-  if(!s)return 'AI tak nahi pahunch paye. Internet check karein.';
-  return 'AI se jawab nahi mila. Thodi der baad poochiye.';
+  if(s===400&&/api key|API_KEY/i.test(e.body||''))return 'AI key sahi nahi lag rahi. Settings me key dobara daalein.';
+  if(s===401||s===403)return 'Is key ko AI chalane ki ijazat nahi hai. Settings me nayi key daalein.';
+  if(s===429)return 'AI ki free limit poori ho gayi ya bahut jaldi-jaldi sawal gaye. Ek minute baad poochiye.';
+  if(s===503||s===500)return 'Google ka AI abhi busy hai. Thodi der baad poochiye.';
+  if(!s||e instanceof TypeError)return 'AI tak nahi pahunch paye. Internet check karein.';
+  return 'AI se jawab nahi mila.';
 }
 
 /* ================= SUNNA (hamesha chalu kaan) ================= */
@@ -2105,16 +2140,17 @@ function startEar(){
     for(let i=e.resultIndex;i<e.results.length;i++){
       if(i<=done)continue;
       const res=e.results[i];
-      const alts=[...res].map(x=>x.transcript).filter(x=>x&&x.trim());
+      let alts=[...res].map(x=>x.transcript).filter(x=>x&&x.trim());
       if(!alts.length)continue;
       gotAny=true;
-      if(isEcho(alts[0]))continue;
+      const talking=!!speakingText;
+      if(talking){alts=alts.map(residue).filter(Boolean);if(!alts.length)continue;}
       setHeard('Suna: "'+alts[0].trim()+'"');
       clearTimeout(deb);
       if(res.isFinal){done=i;onUtter(alts,true);}
       else{
         const quick=quickOf(alts);
-        if(quick&&norm(alts[0]).split(' ').length<=3){const idx=i;deb=setTimeout(()=>{if(idx>done){done=idx;onUtter(alts,false);}},650);}
+        if(quick&&norm(alts[0]).split(' ').length<=3){const idx=i;deb=setTimeout(()=>{if(idx>done){done=idx;onUtter(alts,false);}},talking?350:650);}
       }
     }
   };
@@ -2210,7 +2246,7 @@ async function showQ(read){
   const f=++S.flow; hush(); qView(); S.hist=S.histK===S.k?S.hist:[]; S.histK=S.k;
   if(S.ans[S.k]!=null){markAnswered();S.phase='feedback';setStat('','Is sawal ka jawab ho chuka. "Aage" boliye.');
     const q=cur();await say('Question '+(S.k+1)+'. '+plain(q[2])+'. Iska jawab ho chuka hai. Sahi jawab option '+L[q[4]]+', '+plain(q[3][q[4]])+'. Aage jaane ke liye aage boliye.');return;}
-  S.phase='read'; setStat('','Bot padh raha hai… beech me bhi jawab bol sakte hain');
+  S.phase='read'; setStat('','Bot padh raha hai… beech me "ek, do, teen, char" bol sakte hain');
   startEar();
   await say(readQ(cur(),S.k+1));
   if(f!==S.flow)return;
@@ -2279,7 +2315,7 @@ Rules:
 - "unclear": you cannot tell; reply asks them politely to repeat.
 - "reply" is spoken aloud by a Hindi voice: write in simple Hindi in Devanagari script, keep technical terms (like Demurrage, PF, Stores) in English letters, 2-4 short sentences, no markdown, no lists. If the student clearly spoke in English, reply in simple English instead.`;
   let out;
-  try{out=await gask(prompt);}catch(e){if(f!==S.flow)return;S.phase=prevPhase;setStat('','AI se jawab nahi mila');await say(aiErr(e));if(f===S.flow)setStat('listen','Boliye…');return;}
+  try{out=await gask(prompt);}catch(e){if(f!==S.flow)return;S.phase=prevPhase;const d=aiDetail(e);setStat('','AI se jawab nahi mila');setHeard(d);const res=box.querySelector('#vbRes');if(res)res.insertAdjacentHTML('beforeend',`<div class="vbmsg r"><b>AI error:</b> ${esc(aiErr(e))}<br><span class="small num">${esc(d)}</span></div>`);await say(aiErr(e));if(f===S.flow)setStat('listen','Boliye…');return;}
   if(f!==S.flow)return;
   S.phase=prevPhase;
   const it=String(out.intent||'').toLowerCase(), op=String(out.option||'').toUpperCase().trim();
@@ -2337,7 +2373,7 @@ function home(){
   <div class="panel"><h3 style="margin-bottom:6px">Kya bol sakte hain</h3>
   <ul class="vbhelp">
    <li>Jawab: <b>"ek, do, teen, char"</b> sabse saaf. A, B, C, D ya option ka text bhi chalega.</li>
-   <li>B aur D me confusion na ho: B = <b>"do"</b>, D = <b>"char"</b>.</li>
+   <li>B aur D me confusion na ho: B = <b>"do"</b>, D = <b>"char"</b>.</li><li><b>Bot ke bolte-bolte</b> jawab dena ho to sirf <b>"ek, do, teen, char"</b> bolein. ("Option B" bot ki apni aawaz jaisa lagta hai, isliye woh baad me bolein.)</li>
    <li><b>"Agla"</b> / <b>"Pichla"</b>: sawal badlein. <b>"Dobara"</b>: phir se sunein.</li>
    <li><b>"Ruko"</b>: bot chup. <b>"Answer batao"</b>: sahi jawab sunein. <b>"Stop"</b>: test khatam.</li>
    <li><b>"Dheere"</b> / <b>"Tez"</b>: bolne ki raftaar.</li>
@@ -2345,7 +2381,7 @@ function home(){
   </ul>
   <p class="note" style="margin:8px 0 0">Earphone lagakar chalayein to bot apni aawaz nahi sunega aur aap beech me aaraam se bol payenge. Marking: sahi +1, galat −${NEG}, skip 0.</p></div></div>`;
   box.querySelector('#vbX').onclick=close;
-  const kd=box.querySelector('#vbKeyDel'); if(kd)kd.onclick=()=>{st('vbGemKey',null);st('vbGemModel',null);home();};
+  const kd=box.querySelector('#vbKeyDel'); if(kd)kd.onclick=()=>{st('vbGemKey',null);st('vbGemModel',null);st('vbGemCands',null);home();};
   const ks=box.querySelector('#vbKeySave');
   if(ks)ks.onclick=async()=>{
     const v=box.querySelector('#vbKey').value.trim(),msg=box.querySelector('#vbKeyMsg');
@@ -2354,7 +2390,7 @@ function home(){
     let ok=false;try{ok=await testKey(v);}catch(e){}
     ks.disabled=false;
     if(!ok){msg.innerHTML='<span style="color:var(--bad)">Yeh key kaam nahi kar rahi. aistudio.google.com se sahi key copy karein, ya nayi banayein.</span>';return;}
-    st('vbGemKey',v);st('vbGemModel',null);home();
+    st('vbGemKey',v);st('vbGemModel',null);st('vbGemCands',null);home();
   };
   box.querySelector('#vbGo').onclick=()=>{
     const part=box.querySelector('#vbP').value,n=+box.querySelector('#vbN').value;const p=st('vbpref')||{};p.part=part;p.n=n;st('vbpref',p);
